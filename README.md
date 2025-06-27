@@ -8,10 +8,10 @@ In the project directory, you can run:
 
 ## Install Dependencies
 
-npm install -D tailwindcss postcss autoprefixer / npm install -D tailwindcss@3
-npx tailwindcss init
-npm install lucide-react
-npm install @google/generative-ai dotenv
+# npm install -D tailwindcss postcss autoprefixer / npm install -D tailwindcss@3
+# npx tailwindcss init
+# npm install lucide-react
+# npm install @google/generative-ai dotenv
 
 ### `npm start`
 
