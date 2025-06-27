@@ -1,0 +1,476 @@
+import React, { useState } from 'react';
+import { Calculator, Settings, BarChart3, Apple, Plus, Zap, Target, TrendingUp } from 'lucide-react';
+
+const defaultApiKey = process.env.REACT_APP_GEMINI_API_KEY;
+
+const NutriCounter = () => {
+  const [activeSection, setActiveSection] = useState('Overview');
+  const [foodInput, setFoodInput] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [nutritionResult, setNutritionResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [apiKey, setApiKey] = useState(defaultApiKey || '');
+
+  const menuItems = [
+    { name: 'Overview', icon: BarChart3 },
+    { name: 'Calculator', icon: Calculator },
+    { name: 'Settings', icon: Settings }
+  ];
+
+  const mockNutritionData = [
+    { name: 'Calories', value: '2,145', unit: 'kcal', target: '2,200', color: 'bg-blue-500' },
+    { name: 'Protein', value: '89', unit: 'g', target: '120', color: 'bg-green-500' },
+    { name: 'Carbs', value: '165', unit: 'g', target: '200', color: 'bg-orange-500' },
+    { name: 'Fat', value: '67', unit: 'g', target: '75', color: 'bg-purple-500' }
+  ];
+
+  const recentFoods = [
+    { name: 'Grilled Chicken Breast', portion: '150g', calories: 231 },
+    { name: 'Brown Rice', portion: '1 cup', calories: 216 },
+    { name: 'Mixed Vegetables', portion: '1 cup', calories: 45 }
+  ];
+
+  const handleAnalyzeFood = async () => {
+    if (!foodInput.trim()) return;
+    
+    setIsAnalyzing(true);
+    setError(null);
+    setNutritionResult(null);
+    
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Analyze the nutrition content of: "${foodInput}". 
+
+Please provide a detailed breakdown in the following JSON format only (no other text):
+{
+  "food_name": "name of the food",
+  "portion_size": "portion size",
+  "calories": number,
+  "protein": number,
+  "carbohydrates": number,
+  "fat": number,
+  "fiber": number,
+  "sugar": number,
+  "sodium": number,
+  "vitamin_c": number,
+  "calcium": number,
+  "iron": number
+}
+
+All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c (mg), calcium (mg), and iron (mg). Provide realistic estimates based on standard nutrition databases.`
+            }]
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const generatedText = data.candidates[0].content.parts[0].text;
+      
+      // Extract JSON from the response
+      const jsonMatch = generatedText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const nutritionData = JSON.parse(jsonMatch[0]);
+        setNutritionResult(nutritionData);
+      } else {
+        throw new Error('Could not parse nutrition data from API response');
+      }
+      
+    } catch (err) {
+      console.error('API Error:', err);
+      setError('Failed to analyze food. Please check your API key and try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const renderOverview = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-gray-900">Daily Overview</h1>
+        <div className="flex items-center space-x-2 text-sm text-gray-600">
+          <span>Today</span>
+          <span className="text-green-600 font-medium">June 27, 2025</span>
+        </div>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {mockNutritionData.map((nutrient, index) => (
+          <div key={index} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-600">{nutrient.name}</h3>
+              <div className={`w-3 h-3 rounded-full ${nutrient.color}`}></div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-bold text-gray-900">
+                {nutrient.value}
+                <span className="text-sm font-normal text-gray-500 ml-1">{nutrient.unit}</span>
+              </div>
+              <div className="text-xs text-gray-500">of {nutrient.target} {nutrient.unit}</div>
+              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                <div 
+                  className={`h-2 rounded-full ${nutrient.color}`}
+                  style={{ width: `${Math.min((parseInt(nutrient.value.replace(',', '')) / parseInt(nutrient.target)) * 100, 100)}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Recent Foods */}
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Recent Foods</h2>
+          <TrendingUp className="w-5 h-5 text-gray-400" />
+        </div>
+        <div className="space-y-3">
+          {recentFoods.map((food, index) => (
+            <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <div>
+                  <div className="font-medium text-gray-900">{food.name}</div>
+                  <div className="text-sm text-gray-500">{food.portion}</div>
+                </div>
+              </div>
+              <div className="text-sm font-medium text-gray-900">{food.calories} cal</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderCalculator = () => (
+    <div className="space-y-6">
+      <div className="flex items-center space-x-3">
+        <Zap className="w-8 h-8 text-blue-600" />
+        <h1 className="text-3xl font-bold text-gray-900">Nutrition Calculator</h1>
+      </div>
+
+      <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-100">
+        <div className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Describe your food and portion size
+            </label>
+            <div className="flex space-x-3">
+              <input
+                type="text"
+                value={foodInput}
+                onChange={(e) => setFoodInput(e.target.value)}
+                placeholder="e.g., 1 whole grilled chicken breast, 2 slices of bread, 1 cup of rice..."
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 placeholder-gray-500"
+                onKeyPress={(e) => e.key === 'Enter' && handleAnalyzeFood()}
+              />
+              <button
+                onClick={handleAnalyzeFood}
+                disabled={!foodInput.trim() || isAnalyzing}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center space-x-2"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Calculator className="w-4 h-4" />
+                    <span>Calculate</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mt-2">
+              Our AI will analyze your food description and provide detailed nutrition information.
+            </p>
+          </div>
+
+          {isAnalyzing && (
+            <div className="bg-blue-50 rounded-lg p-6 border border-blue-100">
+              <div className="flex items-center space-x-3">
+                <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-blue-800 font-medium">Processing with Gemini AI nutrition analysis...</span>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 rounded-lg p-6 border border-red-100">
+              <div className="flex items-center space-x-3">
+                <div className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs">!</span>
+                </div>
+                <span className="text-red-800 font-medium">{error}</span>
+              </div>
+            </div>
+          )}
+
+          {nutritionResult && (
+            <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 mt-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-900">Nutrition Analysis</h3>
+                <button 
+                  onClick={() => setNutritionResult(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-100">
+                <h4 className="font-semibold text-green-900">{nutritionResult.food_name}</h4>
+                <p className="text-sm text-green-700">Portion: {nutritionResult.portion_size}</p>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                  <div className="text-2xl font-bold text-blue-900">{nutritionResult.calories}</div>
+                  <div className="text-sm text-blue-700">Calories (kcal)</div>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg border border-green-100">
+                  <div className="text-2xl font-bold text-green-900">{nutritionResult.protein}g</div>
+                  <div className="text-sm text-green-700">Protein</div>
+                </div>
+                <div className="bg-orange-50 p-4 rounded-lg border border-orange-100">
+                  <div className="text-2xl font-bold text-orange-900">{nutritionResult.carbohydrates}g</div>
+                  <div className="text-sm text-orange-700">Carbs</div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <div className="text-2xl font-bold text-purple-900">{nutritionResult.fat}g</div>
+                  <div className="text-sm text-purple-700">Fat</div>
+                </div>
+                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                  <div className="text-2xl font-bold text-yellow-900">{nutritionResult.fiber}g</div>
+                  <div className="text-sm text-yellow-700">Fiber</div>
+                </div>
+                <div className="bg-pink-50 p-4 rounded-lg border border-pink-100">
+                  <div className="text-2xl font-bold text-pink-900">{nutritionResult.sugar}g</div>
+                  <div className="text-sm text-pink-700">Sugar</div>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                  <div className="text-2xl font-bold text-gray-900">{nutritionResult.sodium}mg</div>
+                  <div className="text-sm text-gray-700">Sodium</div>
+                </div>
+                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                  <div className="text-2xl font-bold text-indigo-900">{nutritionResult.vitamin_c}mg</div>
+                  <div className="text-sm text-indigo-700">Vitamin C</div>
+                </div>
+                <div className="bg-teal-50 p-4 rounded-lg border border-teal-100">
+                  <div className="text-2xl font-bold text-teal-900">{nutritionResult.calcium}mg</div>
+                  <div className="text-sm text-teal-700">Calcium</div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex space-x-3">
+                <button className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                  Add to Daily Log
+                </button>
+                <button 
+                  onClick={() => {
+                    setFoodInput('');
+                    setNutritionResult(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Analyze Another
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6 border border-green-100">
+              <div className="flex items-center space-x-3 mb-3">
+                <Target className="w-6 h-6 text-green-600" />
+                <h3 className="font-semibold text-green-900">Quick Tips</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-green-800">
+                <li>• Be specific about portion sizes</li>
+                <li>• Include cooking methods (grilled, fried, etc.)</li>
+                <li>• Mention brands for packaged foods</li>
+                <li>• Describe ingredients in mixed dishes</li>
+              </ul>
+            </div>
+
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-lg p-6 border border-purple-100">
+              <div className="flex items-center space-x-3 mb-3">
+                <Apple className="w-6 h-6 text-purple-600" />
+                <h3 className="font-semibold text-purple-900">Example Inputs</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-purple-800">
+                <li>• "1 medium banana with peel"</li>
+                <li>• "150g grilled salmon fillet"</li>
+                <li>• "2 scrambled eggs with butter"</li>
+                <li>• "1 cup cooked quinoa"</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSettings = () => (
+    <div className="space-y-6">
+      <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+
+      <div className="space-y-6">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">API Configuration</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">AI Provider</label>
+              <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                <option>ChatGPT (OpenAI)</option>
+                <option>Gemini (Google)</option>
+                <option>Claude (Anthropic)</option>
+                <option>Custom API</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">API Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your Gemini API key"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">Your API key is stored locally and never sent to our servers</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Nutrition Goals</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Daily Calories</label>
+              <input
+                type="number"
+                defaultValue="2200"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Protein (g)</label>
+              <input
+                type="number"
+                defaultValue="120"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Carbs (g)</label>
+              <input
+                type="number"
+                defaultValue="200"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Fat (g)</label>
+              <input
+                type="number"
+                defaultValue="75"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Preferences</h2>
+          <div className="space-y-4">
+            <label className="flex items-center">
+              <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" defaultChecked />
+              <span className="ml-2 text-sm text-gray-700">Show detailed nutrient breakdown</span>
+            </label>
+            <label className="flex items-center">
+              <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" defaultChecked />
+              <span className="ml-2 text-sm text-gray-700">Enable daily notifications</span>
+            </label>
+            <label className="flex items-center">
+              <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span className="ml-2 text-sm text-gray-700">Dark mode</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderContent = () => {
+    switch (activeSection) {
+      case 'Overview':
+        return renderOverview();
+      case 'Calculator':
+        return renderCalculator();
+      case 'Settings':
+        return renderSettings();
+      default:
+        return renderOverview();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-white shadow-lg border-r border-gray-200">
+        <div className="p-6 border-b border-gray-100">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+              <Apple className="w-6 h-6 text-white" />
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">NutriCounter</h1>
+          </div>
+        </div>
+
+        <nav className="p-4 space-y-2">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.name}
+                onClick={() => setActiveSection(item.name)}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
+                  activeSection === item.name
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="font-medium">{item.name}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="absolute bottom-6 left-4 right-4">
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 p-8">
+        <div className="max-w-6xl mx-auto">
+          {renderContent()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default NutriCounter;
