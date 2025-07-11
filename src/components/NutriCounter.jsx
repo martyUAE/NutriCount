@@ -595,7 +595,6 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
   );
 
   const renderContent = () => {
-    // We use a React Fragment <> to return multiple elements
     return (
       <>
         {/* The main content switcher */}
@@ -603,7 +602,7 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
         {activeSection === 'Calculator' && renderCalculator()}
         {activeSection === 'Settings' && renderSettings()}
         
-        {/* Conditionally render the Chatbot only on the Overview page */}
+        {/* Chatbot on Overview page */}
         {activeSection === 'Overview' && (
           <Chatbot 
             userProfile={userProfile} 
