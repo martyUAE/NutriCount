@@ -6,6 +6,14 @@ This project was bootstrapped with [Create React App](https://github.com/faceboo
 
 In the project directory, you can run:
 
+## Install Dependencies
+
+ npm install -D tailwindcss postcss autoprefixer / npm install -D tailwindcss@3 \
+ npx tailwindcss init \
+ npm install lucide-react \
+ npm install @google/generative-ai dotenv 
+ npm install firebase
+
 ### `npm start`
 
 Runs the app in the development mode.\
