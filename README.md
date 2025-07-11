@@ -12,6 +12,7 @@ In the project directory, you can run:
  npx tailwindcss init \
  npm install lucide-react \
  npm install @google/generative-ai dotenv 
+ npm install firebase
 
 ### `npm start`
 
