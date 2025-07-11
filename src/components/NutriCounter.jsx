@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
-import { Calculator, Settings, BarChart3, Apple, Plus, Zap, Target, TrendingUp } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Calculator, Settings, BarChart3, Apple, Zap, Target, TrendingUp, LogOut, Sparkles } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Chatbot } from './Chatbot';
 
 const defaultApiKey = process.env.REACT_APP_GEMINI_API_KEY;
 
 const NutriCounter = () => {
+  const { logout } = useAuth();
   const [activeSection, setActiveSection] = useState('Overview');
   const [foodInput, setFoodInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -11,24 +14,59 @@ const NutriCounter = () => {
   const [error, setError] = useState(null);
   const [apiKey, setApiKey] = useState(defaultApiKey || '');
 
+  // Nutritional Goals
+  const [goals, setGoals] = useState({
+    calories: 2200,
+    protein: 120,
+    carbs: 200,
+    fat: 75,
+  });
+
+  // list of foods the user has logged. Starts empty.
+  const [dailyLog, setDailyLog] = useState([]);
+
+  // BMI Goal Generator
+  const [isGeneratingGoals, setIsGeneratingGoals] = useState(false);
+  const [userProfile, setUserProfile] = useState({
+    age: '',
+    gender: 'female',
+    height: '', // in cm
+    weight: '', // in kg
+    activityLevel: 'sedentary', // sedentary, light, moderate, active, very_active
+    goal: 'maintain', // maintain, lose, gain
+  });
+  const [bmi, setBmi] = useState(null);
+
   const menuItems = [
     { name: 'Overview', icon: BarChart3 },
     { name: 'Calculator', icon: Calculator },
-    { name: 'Settings', icon: Settings }
+    { name: 'Settings', icon: Settings },
   ];
 
-  const mockNutritionData = [
-    { name: 'Calories', value: '2,145', unit: 'kcal', target: '2,200', color: 'bg-blue-500' },
-    { name: 'Protein', value: '89', unit: 'g', target: '120', color: 'bg-green-500' },
-    { name: 'Carbs', value: '165', unit: 'g', target: '200', color: 'bg-orange-500' },
-    { name: 'Fat', value: '67', unit: 'g', target: '75', color: 'bg-purple-500' }
-  ];
+  const handleAddFoodToLog = () => {
+    if (!nutritionResult) return;
+    
+    // Create a new log entry with a unique ID and timestamp
+    const newLogEntry = {
+      id: new Date().getTime(), // Simple unique ID
+      ...nutritionResult,
+    };
 
-  const recentFoods = [
-    { name: 'Grilled Chicken Breast', portion: '150g', calories: 231 },
-    { name: 'Brown Rice', portion: '1 cup', calories: 216 },
-    { name: 'Mixed Vegetables', portion: '1 cup', calories: 45 }
-  ];
+    setDailyLog(prevLog => [...prevLog, newLogEntry]);
+
+    // Reset the calculator for the next entry & switch to overview
+    setNutritionResult(null);
+    setFoodInput('');
+    setActiveSection('Overview');
+  };
+
+  const handleGoalChange = (e) => {
+    const { name, value } = e.target;
+    setGoals(prevGoals => ({
+      ...prevGoals,
+      [name]: parseInt(value) || 0, // Update the specific goal
+    }));
+  };
 
   const handleAnalyzeFood = async () => {
     if (!foodInput.trim()) return;
@@ -94,19 +132,106 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
     }
   };
 
+  const nutrientTotals = useMemo(() => {
+    const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    dailyLog.forEach(food => {
+      totals.calories += food.calories || 0;
+      totals.protein += food.protein || 0;
+      totals.carbs += food.carbohydrates || 0;
+      totals.fat += food.fat || 0;
+    });
+    return totals;
+  }, [dailyLog]);
+
+  const overviewStats = [
+    { name: 'Calories', current: nutrientTotals.calories, target: goals.calories, unit: 'kcal', color: 'bg-blue-500' },
+    { name: 'Protein', current: nutrientTotals.protein, target: goals.protein, unit: 'g', color: 'bg-green-500' },
+    { name: 'Carbs', current: nutrientTotals.carbs, target: goals.carbs, unit: 'g', color: 'bg-orange-500' },
+    { name: 'Fat', current: nutrientTotals.fat, target: goals.fat, unit: 'g', color: 'bg-purple-500' }
+  ];
+
+  const handleProfileChange = (e) => {
+    const { name, value } = e.target;
+    setUserProfile(prev => ({...prev, [name]: value}));
+
+    // Calculate BMI with height and weight
+    const heightInMeters = name === 'height' ? value / 100 : userProfile.height / 100;
+    const weight = name === 'weight' ? value : userProfile.weight;
+    if (heightInMeters > 0 && weight > 0) {
+      const calculatedBmi = (weight / (heightInMeters * heightInMeters)).toFixed(1);
+      setBmi(calculatedBmi);
+    } else {
+      setBmi(null);
+    }
+  };
+
+  const handleGenerateGoals = async () => {
+    setIsGeneratingGoals(true);
+    setError(null);
+
+    const prompt = `
+      Act as an expert nutritionist. Based on the following user data, calculate their daily nutritional needs.
+      User Data:
+      - Age: ${userProfile.age}
+      - Gender: ${userProfile.gender}
+      - Height: ${userProfile.height} cm
+      - Weight: ${userProfile.weight} kg
+      - Activity Level: ${userProfile.activityLevel} (options: sedentary, light, moderate, active, very_active)
+      - Primary Goal: ${userProfile.goal} weight (options: maintain, lose, gain)
+
+      Please provide a recommended daily intake for calories, protein (g), carbs (g), and fat (g).
+      Return the response ONLY in the following strict JSON format. Do not include any other text, explanations, or markdown formatting.
+
+      {
+        "calories": number,
+        "protein": number,
+        "carbs": number,
+        "fat": number
+      }
+    `;
+
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      
+      const data = await response.json();
+      const generatedText = data.candidates[0].content.parts[0].text;
+      const jsonMatch = generatedText.match(/\{[\s\S]*\}/);
+
+      if (jsonMatch) {
+        const newGoals = JSON.parse(jsonMatch[0]);
+        // Update the goals state with the AI's recommendations
+        setGoals({
+          calories: Math.round(newGoals.calories),
+          protein: Math.round(newGoals.protein),
+          carbs: Math.round(newGoals.carbs),
+          fat: Math.round(newGoals.fat)
+        });
+      } else {
+        throw new Error('Could not parse goals from AI response');
+      }
+    } catch (err) {
+      console.error('AI Goal Generation Error:', err);
+      setError('Failed to generate goals. Please check your inputs and API key.');
+    } finally {
+      setIsGeneratingGoals(false);
+    }
+  };
+
   const renderOverview = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Daily Overview</h1>
-        <div className="flex items-center space-x-2 text-sm text-gray-600">
-          <span>Today</span>
-          <span className="text-green-600 font-medium">June 27, 2025</span>
-        </div>
       </div>
 
-      {/* Quick Stats */}
+      {/* Nutritional Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {mockNutritionData.map((nutrient, index) => (
+        {overviewStats.map((nutrient, index) => (
           <div key={index} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-gray-600">{nutrient.name}</h3>
@@ -114,14 +239,14 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
             </div>
             <div className="space-y-1">
               <div className="text-2xl font-bold text-gray-900">
-                {nutrient.value}
+                {Math.round(nutrient.current).toLocaleString()}
                 <span className="text-sm font-normal text-gray-500 ml-1">{nutrient.unit}</span>
               </div>
-              <div className="text-xs text-gray-500">of {nutrient.target} {nutrient.unit}</div>
+              <div className="text-xs text-gray-500">of {nutrient.target.toLocaleString()} {nutrient.unit}</div>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                 <div 
                   className={`h-2 rounded-full ${nutrient.color}`}
-                  style={{ width: `${Math.min((parseInt(nutrient.value.replace(',', '')) / parseInt(nutrient.target)) * 100, 100)}%` }}
+                  style={{ width: `${Math.min((nutrient.current / nutrient.target) * 100, 100)}%` }}
                 ></div>
               </div>
             </div>
@@ -136,21 +261,26 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
           <TrendingUp className="w-5 h-5 text-gray-400" />
         </div>
         <div className="space-y-3">
-          {recentFoods.map((food, index) => (
-            <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <div className="flex items-center space-x-3">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <div>
-                  <div className="font-medium text-gray-900">{food.name}</div>
-                  <div className="text-sm text-gray-500">{food.portion}</div>
+          {dailyLog.length > 0 ? (
+            dailyLog.map((food) => (
+              <div key={food.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <div>
+                    <div className="font-medium text-gray-900">{food.food_name}</div>
+                    <div className="text-sm text-gray-500">{food.portion_size}</div>
+                  </div>
                 </div>
+                <div className="text-sm font-medium text-gray-900">{food.calories} cal</div>
               </div>
-              <div className="text-sm font-medium text-gray-900">{food.calories} cal</div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="text-center text-gray-500 py-4">No foods logged yet. Use the calculator to add some!</p>
+          )}
         </div>
       </div>
     </div>
+    
   );
 
   const renderCalculator = () => (
@@ -275,14 +405,13 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
               </div>
 
               <div className="mt-6 flex space-x-3">
-                <button className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                <button 
+                  onClick={handleAddFoodToLog}
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
                   Add to Daily Log
                 </button>
                 <button 
-                  onClick={() => {
-                    setFoodInput('');
-                    setNutritionResult(null);
-                  }}
+                  onClick={() => { setFoodInput(''); setNutritionResult(null); }}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Analyze Another
@@ -334,9 +463,7 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">AI Provider</label>
               <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
-                <option>ChatGPT (OpenAI)</option>
                 <option>Gemini (Google)</option>
-                <option>Claude (Anthropic)</option>
                 <option>Custom API</option>
               </select>
             </div>
@@ -361,7 +488,9 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
               <label className="block text-sm font-medium text-gray-700 mb-2">Daily Calories</label>
               <input
                 type="number"
-                defaultValue="2200"
+                name="calories"
+                value={goals.calories}
+                onChange={handleGoalChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
             </div>
@@ -369,7 +498,9 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
               <label className="block text-sm font-medium text-gray-700 mb-2">Protein (g)</label>
               <input
                 type="number"
-                defaultValue="120"
+                name="protein"
+                value={goals.protein}
+                onChange={handleGoalChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
             </div>
@@ -377,7 +508,9 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
               <label className="block text-sm font-medium text-gray-700 mb-2">Carbs (g)</label>
               <input
                 type="number"
-                defaultValue="200"
+                name="carbs"
+                value={goals.carbs}
+                onChange={handleGoalChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
             </div>
@@ -385,7 +518,9 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
               <label className="block text-sm font-medium text-gray-700 mb-2">Fat (g)</label>
               <input
                 type="number"
-                defaultValue="75"
+                name="fat"
+                value={goals.fat}
+                onChange={handleGoalChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
             </div>
@@ -393,43 +528,97 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
         </div>
 
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Preferences</h2>
-          <div className="space-y-4">
-            <label className="flex items-center">
-              <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" defaultChecked />
-              <span className="ml-2 text-sm text-gray-700">Show detailed nutrient breakdown</span>
-            </label>
-            <label className="flex items-center">
-              <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" defaultChecked />
-              <span className="ml-2 text-sm text-gray-700">Enable daily notifications</span>
-            </label>
-            <label className="flex items-center">
-              <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span className="ml-2 text-sm text-gray-700">Dark mode</span>
-            </label>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Personalize Goals with AI</h2>
+            {bmi && <span className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-md">Your BMI: {bmi}</span>}
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Age</label>
+              <input type="number" name="age" value={userProfile.age} onChange={handleProfileChange} className="w-full px-3 py-2 border rounded-lg"/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Height (cm)</label>
+              <input type="number" name="height" value={userProfile.height} onChange={handleProfileChange} className="w-full px-3 py-2 border rounded-lg"/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Weight (kg)</label>
+              <input type="number" name="weight" value={userProfile.weight} onChange={handleProfileChange} className="w-full px-3 py-2 border rounded-lg"/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+              <select name="gender" value={userProfile.gender} onChange={handleProfileChange} className="w-full px-3 py-2 border rounded-lg">
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Activity Level</label>
+              <select name="activityLevel" value={userProfile.activityLevel} onChange={handleProfileChange} className="w-full px-3 py-2 border rounded-lg">
+                <option value="sedentary">Sedentary (little or no exercise)</option>
+                <option value="light">Light (1-3 days/week)</option>
+                <option value="moderate">Moderate (3-5 days/week)</option>
+                <option value="active">Active (6-7 days/week)</option>
+                <option value="very_active">Very Active (hard exercise every day)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Goal</label>
+              <select name="goal" value={userProfile.goal} onChange={handleProfileChange} className="w-full px-3 py-2 border rounded-lg">
+                <option value="lose">Lose Weight</option>
+                <option value="maintain">Maintain Weight</option>
+                <option value="gain">Gain Weight</option>
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={handleGenerateGoals}
+            disabled={isGeneratingGoals || !userProfile.age || !userProfile.height || !userProfile.weight}
+            className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium flex items-center justify-center space-x-2"
+          >
+            {isGeneratingGoals ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Generating...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5" />
+                <span>Generate My Goals</span>
+              </>
+            )}
+          </button>
+          {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
         </div>
       </div>
     </div>
   );
 
   const renderContent = () => {
-    switch (activeSection) {
-      case 'Overview':
-        return renderOverview();
-      case 'Calculator':
-        return renderCalculator();
-      case 'Settings':
-        return renderSettings();
-      default:
-        return renderOverview();
-    }
+    // We use a React Fragment <> to return multiple elements
+    return (
+      <>
+        {/* The main content switcher */}
+        {activeSection === 'Overview' && renderOverview()}
+        {activeSection === 'Calculator' && renderCalculator()}
+        {activeSection === 'Settings' && renderSettings()}
+        
+        {/* Conditionally render the Chatbot only on the Overview page */}
+        {activeSection === 'Overview' && (
+          <Chatbot 
+            userProfile={userProfile} 
+            bmi={bmi} 
+            apiKey={apiKey} 
+          />
+        )}
+      </>
+    );
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
-      <div className="w-64 bg-white shadow-lg border-r border-gray-200">
+      <div className="w-64 bg-white shadow-lg border-r border-gray-200 relative">
         <div className="p-6 border-b border-gray-100">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
@@ -460,6 +649,13 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
         </nav>
 
         <div className="absolute bottom-6 left-4 right-4">
+          <button
+              onClick={logout}
+              className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50 hover:text-red-700"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="font-medium">Logout</span>
+            </button>
         </div>
       </div>
 
