@@ -13,6 +13,7 @@ In the project directory, you can run:
  npm install lucide-react \
  npm install @google/generative-ai dotenv 
  npm install firebase
+ npm install react-csv
 
 ### `npm start`
 
