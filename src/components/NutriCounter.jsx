@@ -1,9 +1,67 @@
 import React, { useState, useMemo } from 'react';
-import { Calculator, Settings, BarChart3, Apple, Zap, Target, TrendingUp, LogOut, Sparkles } from 'lucide-react';
+import { CSVLink } from "react-csv";
+import { Calculator, Settings, BarChart3, Apple, Zap, Target, TrendingUp, LogOut, Sparkles, X, Trash2, Download } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Chatbot } from './Chatbot';
 
 const defaultApiKey = process.env.REACT_APP_GEMINI_API_KEY;
+
+// Food Edit Modal
+const FoodEditModal = ({ food, onSave, onCancel, onDelete }) => {
+  const [editedFood, setEditedFood] = useState(food);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setEditedFood(prev => ({ ...prev, [name]: parseFloat(value) || 0 }));
+  };
+  
+   const nutrientFields = [
+    { name: 'calories', label: 'Calories (kcal)' },
+    { name: 'protein', label: 'Protein (g)' },
+    { name: 'carbohydrates', label: 'Carbs (g)' },
+    { name: 'fat', label: 'Fat (g)' },
+    { name: 'fiber', label: 'Fiber (g)' },
+    { name: 'sugar', label: 'Sugar (g)' },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 shadow-lg w-full max-w-lg space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold">Edit: {food.food_name}</h2>
+          <button onClick={onCancel} className="text-gray-500 hover:text-gray-800"><X size={24} /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          {nutrientFields.map(field => (
+            <div key={field.name}>
+              <label className="block text-sm font-medium text-gray-700">{field.label}</label>
+              <input
+                type="number"
+                name={field.name}
+                value={editedFood[field.name]}
+                onChange={handleChange}
+                className="mt-1 w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-between items-center pt-4">
+          <button
+            onClick={() => onDelete(food.id)}
+            className="flex items-center space-x-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+          >
+            <Trash2 size={18} />
+            <span>Delete</span>
+          </button>
+          <div className="space-x-2">
+            <button onClick={onCancel} className="px-4 py-2 border rounded-lg">Cancel</button>
+            <button onClick={() => onSave(editedFood)} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Save Changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const NutriCounter = () => {
   const { logout } = useAuth();
@@ -13,6 +71,8 @@ const NutriCounter = () => {
   const [nutritionResult, setNutritionResult] = useState(null);
   const [error, setError] = useState(null);
   const [apiKey, setApiKey] = useState(defaultApiKey || '');
+  const [csvData, setCsvData] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
 
   // Nutritional Goals
   const [goals, setGoals] = useState({
@@ -24,6 +84,10 @@ const NutriCounter = () => {
 
   // list of foods the user has logged. Starts empty.
   const [dailyLog, setDailyLog] = useState([]);
+
+  //Edit Modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingFood, setEditingFood] = useState(null);
 
   // BMI Goal Generator
   const [isGeneratingGoals, setIsGeneratingGoals] = useState(false);
@@ -223,10 +287,96 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
     }
   };
 
+  //Handler Functions for Editing and Deleting
+  const handleOpenEditModal = (foodToEdit) => {
+    setEditingFood(foodToEdit);
+    setIsEditModalOpen(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false);
+    setEditingFood(null);
+  };
+
+  const handleUpdateFood = (updatedFood) => {
+    setDailyLog(prevLog => 
+      prevLog.map(food => 
+        food.id === updatedFood.id ? updatedFood : food
+      )
+    );
+    handleCloseEditModal();
+  };
+
+  const handleDeleteFood = (foodId) => {
+    //  Confirmation Dialog
+    if (window.confirm("Are you sure you want to delete this item?")) {
+      setDailyLog(prevLog => prevLog.filter(food => food.id !== foodId));
+      handleCloseEditModal();
+    }
+  };
+
+  const prepareDataForExport = () => {
+      // Define the headers for CSV file
+      const headers = [
+        { label: "Category", key: "category" },
+        { label: "Item", key: "item" },
+        { label: "Value", key: "value" },
+        { label: "Unit/Target", key: "unit" },
+      ];
+      
+      let dataToExport = [];
+      
+      // Add User BMI
+      dataToExport.push({ category: "User Profile", item: "BMI", value: bmi || 'N/A' });
+      dataToExport.push({}); // Add a blank row for spacing
+      
+      // Add Daily Overview Stats
+      dataToExport.push({ category: "Daily Totals", item: "Nutrient", value: "Consumed", unit: "Goal" });
+      overviewStats.forEach(stat => {
+        dataToExport.push({
+          category: "Daily Totals",
+          item: stat.name,
+          value: Math.round(stat.current),
+          unit: `${stat.target} ${stat.unit}`
+        });
+      });
+      dataToExport.push({}); // Add a blank row for spacing
+      
+      // Add Recent Foods (Daily Log)
+      dataToExport.push({ category: "Logged Foods", item: "Food Name", value: "Calories", unit: "Portion" });
+      if (dailyLog.length > 0) {
+        dailyLog.forEach(food => {
+          dataToExport.push({
+            category: "Logged Foods",
+            item: food.food_name,
+            value: food.calories,
+            unit: food.portion_size,
+          });
+        });
+      } else {
+        dataToExport.push({ category: "Logged Foods", item: "No foods logged yet." });
+      }
+
+      // Set the prepared data and headers to state, ready for the download link
+      setCsvHeaders(headers);
+      setCsvData(dataToExport);
+    };
+
   const renderOverview = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Daily Overview</h1>
+          {/* Export Button */}
+          <CSVLink 
+            data={csvData}
+            headers={csvHeaders}
+            filename={"nutricounter_overview.csv"}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            onClick={prepareDataForExport} // Prepare data right before download
+          >
+            <Download size={18} />
+            <span>Export to CSV</span>
+          </CSVLink>
       </div>
 
       {/* Nutritional Stats */}
@@ -263,7 +413,12 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
         <div className="space-y-3">
           {dailyLog.length > 0 ? (
             dailyLog.map((food) => (
-              <div key={food.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              // Each food item is now a clickable button
+              <button 
+                key={food.id} 
+                onClick={() => handleOpenEditModal(food)}
+                className="w-full text-left flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+              >
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                   <div>
@@ -272,13 +427,22 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
                   </div>
                 </div>
                 <div className="text-sm font-medium text-gray-900">{food.calories} cal</div>
-              </div>
+              </button>
             ))
           ) : (
             <p className="text-center text-gray-500 py-4">No foods logged yet. Use the calculator to add some!</p>
           )}
         </div>
       </div>
+      {/* Conditionally render the Edit Modal */}
+      {isEditModalOpen && (
+        <FoodEditModal 
+          food={editingFood} 
+          onSave={handleUpdateFood} 
+          onCancel={handleCloseEditModal} 
+          onDelete={handleDeleteFood}
+        />
+      )}
     </div>
     
   );
@@ -594,7 +758,7 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
     </div>
   );
 
-  const renderContent = () => {
+  const renderContent = () => { 
     return (
       <>
         {/* The main content switcher */}
