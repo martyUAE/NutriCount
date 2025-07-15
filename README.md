@@ -11,8 +11,8 @@ In the project directory, you can run:
  npm install -D tailwindcss postcss autoprefixer / npm install -D tailwindcss@3 \
  npx tailwindcss init \
  npm install lucide-react \
- npm install @google/generative-ai dotenv 
- npm install firebase
+ npm install @google/generative-ai dotenv \
+ npm install firebase \
  npm install react-csv
 
 ### `npm start`
