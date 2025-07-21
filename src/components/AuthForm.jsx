@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { Apple } from "lucide-react";
 
@@ -13,6 +14,27 @@ const AuthForm = ({ isRegister, toggleForm }) => {
     setError("");
     try {
       if (isRegister) {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        //stores personal data
+         await setDoc(doc(db, "users", user.uid), {
+          email: user.email,
+          createdAt: serverTimestamp(), // Use server's timestamp for accuracy
+          profile: {
+            age: '',
+            gender: 'female',
+            height: '',
+            weight: '',
+            activityLevel: 'sedentary',
+            goal: 'maintain'
+          },
+          goals: {
+            calories: 2200,
+            protein: 120,
+            carbs: 200,
+            fat: 75
+          }
+          });
         // Registration logic
         await createUserWithEmailAndPassword(auth, email, password);
       } else {

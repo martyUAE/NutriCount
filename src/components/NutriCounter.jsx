@@ -3,6 +3,8 @@ import { CSVLink } from "react-csv";
 import { Calculator, Settings, BarChart3, Apple, Zap, Target, TrendingUp, LogOut, Sparkles, X, Trash2, Download } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Chatbot } from './Chatbot';
+import { doc, getDoc, updateDoc, collection, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const defaultApiKey = process.env.REACT_APP_GEMINI_API_KEY;
 
@@ -64,7 +66,7 @@ const FoodEditModal = ({ food, onSave, onCancel, onDelete }) => {
 };
 
 const NutriCounter = () => {
-  const { logout } = useAuth();
+  const { user,logout } = useAuth();
   const [activeSection, setActiveSection] = useState('Overview');
   const [foodInput, setFoodInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -73,6 +75,38 @@ const NutriCounter = () => {
   const [apiKey, setApiKey] = useState(defaultApiKey || '');
   const [csvData, setCsvData] = useState([]);
   const [csvHeaders, setCsvHeaders] = useState([]);
+  
+  useEffect(() => {
+    // Make sure we have a logged-in user before trying to fetch data
+    if (!user) return;
+
+    // 1. Fetch the main user document to get profile and goals
+    const userDocRef = doc(db, "users", user.uid);
+    const getProfileAndGoals = async () => {
+      const docSnap = await getDoc(userDocRef);
+      if (docSnap.exists()) {
+        const userData = docSnap.data();
+        setUserProfile(userData.profile || { age: '', gender: 'female', /* defaults */ });
+        setGoals(userData.goals || { calories: 2200, /* defaults */ });
+      } else {
+        console.log("No such user document! This should not happen if signup is correct.");
+      }
+    };
+    getProfileAndGoals();
+
+    // 2. Set up a REAL-TIME listener for the food log
+    const foodLogCollectionRef = collection(db, "users", user.uid, "foodlogs");
+    const q = query(foodLogCollectionRef, orderBy("loggedAt", "desc"));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      setDailyLog(logs); // Update our React state whenever Firestore changes
+    });
+    
+    // Cleanup the listener when the component unmounts or the user logs out
+    return () => unsubscribe();
+
+  }, [user]);
 
   // Nutritional Goals
   const [goals, setGoals] = useState({
@@ -107,16 +141,16 @@ const NutriCounter = () => {
     { name: 'Settings', icon: Settings },
   ];
 
-  const handleAddFoodToLog = () => {
-    if (!nutritionResult) return;
-    
-    // Create a new log entry with a unique ID and timestamp
-    const newLogEntry = {
-      id: new Date().getTime(), // Simple unique ID
+  const handleAddFoodToLog = async () => {
+    if (!nutritionResult || !user) return;
+    const foodLogCollectionRef = collection(db, "users", user.uid, "foodlogs");
+    await addDoc(foodLogCollectionRef, {
       ...nutritionResult,
-    };
-
-    setDailyLog(prevLog => [...prevLog, newLogEntry]);
+      loggedAt: serverTimestamp() // Use server's timestamp for consistency
+    });
+    setNutritionResult(null);
+    setFoodInput('');
+    setActiveSection('Overview');
 
     // Reset the calculator for the next entry & switch to overview
     setNutritionResult(null);
@@ -126,10 +160,15 @@ const NutriCounter = () => {
 
   const handleGoalChange = (e) => {
     const { name, value } = e.target;
-    setGoals(prevGoals => ({
+    setGoals(prevGoals => {
+      const newGoals = { 
       ...prevGoals,
       [name]: parseInt(value) || 0, // Update the specific goal
-    }));
+    };
+
+    saveProfileAndGoals(userProfile, newGoals);
+    return newGoals;
+    });
   };
 
   const handleAnalyzeFood = async () => {
@@ -216,8 +255,12 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
 
   const handleProfileChange = (e) => {
     const { name, value } = e.target;
-    setUserProfile(prev => ({...prev, [name]: value}));
-
+    setUserProfile(prevProfile => {
+      const newProfile = { ...prevProfile, [name]: value };
+      
+      // Save the updated profile to Firestore
+      saveProfileAndGoals(newProfile, goals);
+  
     // Calculate BMI with height and weight
     const heightInMeters = name === 'height' ? value / 100 : userProfile.height / 100;
     const weight = name === 'weight' ? value : userProfile.weight;
@@ -227,6 +270,9 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
     } else {
       setBmi(null);
     }
+
+    return newProfile;
+  });
   };
 
   const handleGenerateGoals = async () => {
@@ -270,12 +316,16 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
       if (jsonMatch) {
         const newGoals = JSON.parse(jsonMatch[0]);
         // Update the goals state with the AI's recommendations
-        setGoals({
+        const roundedGoals = {
           calories: Math.round(newGoals.calories),
           protein: Math.round(newGoals.protein),
           carbs: Math.round(newGoals.carbs),
           fat: Math.round(newGoals.fat)
-        });
+        };
+
+        setGoals(roundedGoals);  // Update the local state
+        await saveProfileAndGoals(userProfile, roundedGoals); // Save the newly generated goals to Firestore
+
       } else {
         throw new Error('Could not parse goals from AI response');
       }
@@ -298,21 +348,30 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
     setEditingFood(null);
   };
 
-  const handleUpdateFood = (updatedFood) => {
-    setDailyLog(prevLog => 
-      prevLog.map(food => 
-        food.id === updatedFood.id ? updatedFood : food
-      )
-    );
+  const handleUpdateFood = async (updatedFood) => {
+    if (!user) return;
+    const foodDocRef = doc(db, "users", user.uid, "foodlogs", updatedFood.id);
+    const { id, ...foodData } = updatedFood; // Firestore doesn't need the id field in the document
+    await updateDoc(foodDocRef, foodData);
     handleCloseEditModal();
   };
 
-  const handleDeleteFood = (foodId) => {
-    //  Confirmation Dialog
+  const handleDeleteFood = async (foodId) => {
+    if (!user) return;
     if (window.confirm("Are you sure you want to delete this item?")) {
-      setDailyLog(prevLog => prevLog.filter(food => food.id !== foodId));
+      const foodDocRef = doc(db, "users", user.uid, "foodlogs", foodId);
+      await deleteDoc(foodDocRef);
       handleCloseEditModal();
     }
+  };
+
+  const saveProfileAndGoals = async (newProfile, newGoals) => {
+    if (!user) return;
+    const userDocRef = doc(db, "users", user.uid);
+    await updateDoc(userDocRef, {
+      profile: newProfile,
+      goals: newGoals
+    });
   };
 
   const prepareDataForExport = () => {
