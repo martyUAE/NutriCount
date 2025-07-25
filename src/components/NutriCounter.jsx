@@ -80,7 +80,7 @@ const NutriCounter = () => {
     // Make sure we have a logged-in user before trying to fetch data
     if (!user) return;
 
-    // 1. Fetch the main user document to get profile and goals
+    // etch the main user document to get profile and goals
     const userDocRef = doc(db, "users", user.uid);
     const getProfileAndGoals = async () => {
       const docSnap = await getDoc(userDocRef);
@@ -94,7 +94,7 @@ const NutriCounter = () => {
     };
     getProfileAndGoals();
 
-    // 2. Set up a REAL-TIME listener for the food log
+    // Set up a REAL-TIME listener for the food log
     const foodLogCollectionRef = collection(db, "users", user.uid, "foodlogs");
     const q = query(foodLogCollectionRef, orderBy("loggedAt", "desc"));
     
@@ -258,7 +258,7 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
     setUserProfile(prevProfile => {
       const newProfile = { ...prevProfile, [name]: value };
       
-      // Save the updated profile to Firestore
+      // Save the updated profile to Firestore, doesn't work Shrug
       saveProfileAndGoals(newProfile, goals);
   
     // Calculate BMI with height and weight
@@ -351,7 +351,7 @@ All nutrients should be in grams except calories (kcal), sodium (mg), vitamin_c 
   const handleUpdateFood = async (updatedFood) => {
     if (!user) return;
     const foodDocRef = doc(db, "users", user.uid, "foodlogs", updatedFood.id);
-    const { id, ...foodData } = updatedFood; // Firestore doesn't need the id field in the document
+    const { id, ...foodData } = updatedFood;
     await updateDoc(foodDocRef, foodData);
     handleCloseEditModal();
   };
